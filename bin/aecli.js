@@ -19,17 +19,17 @@
  *  PERFORMANCE OF THIS SOFTWARE.
  */
 'use strict'
-// We'll use `commander` for parsing options
-// Also we need `esm` package to handle `ES imports`
-const program = require('commander')
-
+// We need `esm` package to handle `ES imports`
 require = require('esm')(module/*, options */) // use to handle es6 import/export
+// We'll use `commander` for parsing options
+const { program, Command } = require('commander')
 const utils = require('./utils/index')
+const inspect = require('./aecli-inspect').default
 
 // Array of child command's
 const EXECUTABLE_CMD = [
   { name: 'chain', desc: 'Interact with the blockchain' },
-  { name: 'inspect', desc: 'Get information on transactions, blocks,...' },
+  inspect,
   { name: 'account', desc: 'Handle wallet operations' },
   { name: 'contract', desc: 'Compile contracts' },
   { name: 'name', desc: 'AENS system' },
@@ -50,7 +50,16 @@ program
   .action((cmd) => utils.print.printConfig(cmd))
 
 // ## Initialize `child` command's
-EXECUTABLE_CMD.forEach(({ name, desc }) => program.command(name, desc));
+EXECUTABLE_CMD.forEach(command => command instanceof Command
+    ? program.addCommand(command)
+    : program.command(command.name, command.desc));
 
 // Parse arguments
-program.parse(process.argv)
+(async () => {
+  try {
+    await program.parseAsync(process.argv)
+  } catch (error) {
+    console.error(error.message)
+    process.exit(1)
+  }
+})()

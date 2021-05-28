@@ -1,7 +1,3 @@
-#!/usr/bin/env node
-// # æternity CLI `inspect` file
-//
-// This script initialize all `inspect` commands
 /*
  * ISC License (ISC)
  * Copyright (c) 2018 aeternity developers
@@ -18,41 +14,91 @@
  *  OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR
  *  PERFORMANCE OF THIS SOFTWARE.
  */
-// We'll use `commander` for parsing options
-//
-// Also we need `esm` package to handle `ES imports`
-const program = require('commander')
 
-require = require('esm')(module/*, options */) // use to handle es6 import/export
-const utils = require('./utils/index')
-const { Inspect } = require('./commands')
+import { Command } from 'commander'
+import { TxBuilder } from '@aeternity/aepp-sdk'
+import { HASH_TYPES, NODE_URL, NODE_INTERNAL_URL } from './utils/constant'
+import { initChain } from './utils/cli'
+import {
+  print, printBlock, printBlockTransactions,
+  printName, printOracle, printQueries,
+  printTransaction, printUnderscored,
+} from './utils/print'
+import { getBlock, updateNameStatus, validateName } from './utils/helpers'
 
-// ## Initialize `options`
-program
-  .option('-u --url [hostname]', 'Node to connect to', utils.constant.NODE_URL)
-  .option('--internalUrl [internal]', 'Node to connect to(internal)', utils.constant.NODE_INTERNAL_URL)
+export default new Command('inspect')
+  .arguments('<identifier>')
+  .description('Get information about an entity by its identifier')
+  .on('--help', () => console.log([
+    '',
+    'You can use this command to get info about account, block, transaction or name.',
+    '',
+    'Examples:',
+    '  `aecli inspect testName.test` --> get info about AENS `name`',
+    '  `aecli inspect ak_134defawsgf34gfq4f` --> get info about `account`',
+    '  `aecli inspect kh_134defawsgf34gfq4f` --> get info about `key block` by block `hash`',
+    '  `aecli inspect mh_134defawsgf34gfq4f` --> get info about `micro block` by block `hash`',
+    '  `aecli inspect 1234` --> get info about `block` by block `height`',
+    '  `aecli inspect th_asfwegfj34234t34t` --> get info about `transaction` by transaction `hash`',
+  ].join('\n')))
+  .option('-u --url [hostname]', 'Node to connect to', NODE_URL)
+  .option('--internalUrl [internal]', 'Node to connect to (internal)', NODE_INTERNAL_URL)
   .option('-f --force', 'Ignore node version compatibility check')
   .option('--json', 'Print result in json format')
+  .action(async (identifier, { json, ...options }) => {
+    const pref = identifier.split('_')[0]
 
-// ## Initialize `inspect` command
-//
-// You can use this command to get info about account, block, transaction or name
-//
-// Example: `aecli inspect testName.test` --> get info about AENS `name`
-//
-// Example: `aecli inspect ak_134defawsgf34gfq4f` --> get info about `account`
-//
-// Example: `aecli inspect kh_134defawsgf34gfq4f` --> get info about `key block` by block `hash`
-//
-// Example: `aecli inspect mh_134defawsgf34gfq4f` --> get info about `micro block` by block `hash`
-//
-// Example: `aecli inspect 1234` --> get info about `block` by block `height`
-//
-// Example: `aecli inspect th_asfwegfj34234t34t` --> get info about `transaction` by transaction `hash`
-program
-  .arguments('<hash>')
-  .description('Hash or Name to inspect (eg: ak_..., mk_..., name.test)')
-  .action(async (hash, cmd) => Inspect.inspect(hash, cmd))
+    if (pref === HASH_TYPES.rawTransaction) {
+      checkPref(identifier, HASH_TYPES.rawTransaction)
+      const { tx, txType: type } = TxBuilder.unpackTx(identifier)
+      if (json) print({ tx: tx, type })
+      else {
+        printUnderscored('Tx Type', type)
+        Object.entries(tx).forEach(entry => printUnderscored(...entry))
+      }
+      return
+    }
 
-// Parse arguments
-program.parse(process.argv)
+    const client = await initChain(options)
+
+    if (+identifier) {
+      printBlock(await client.api.getKeyBlockByHeight(+identifier), json)
+      return
+    }
+
+    switch (pref) {
+      case HASH_TYPES.block:
+      case HASH_TYPES.micro_block:
+        printBlock(await getBlock(identifier)(client), json)
+        break
+      case HASH_TYPES.account:
+        const { nonce } = await client.api.getAccountByPubkey(identifier)
+        const balance = await client.balance(identifier)
+        const transactions = (await client.api.getPendingAccountTransactionsByPubkey(identifier)).transactions
+        if (json) {
+          print({ identifier, balance, nonce, transactions })
+        } else {
+          printUnderscored('Account ID', identifier)
+          printUnderscored('Account balance', balance)
+          printUnderscored('Account nonce', nonce)
+          print('Account Transactions: ')
+          printBlockTransactions(transactions)
+        }
+        break
+      case HASH_TYPES.transaction:
+        printTransaction(await client.tx(identifier), json)
+        break
+      case HASH_TYPES.contract:
+        printTransaction(await client.api.getContract(identifier), json)
+        break
+      case HASH_TYPES.oracle:
+        printOracle(await client.getOracle(identifier), json)
+        const { oracleQueries } = await client.getOracleQueries(identifier)
+        if (oracleQueries) printQueries(oracleQueries, json)
+        break
+      default:
+        validateName(identifier)
+        printName(await updateNameStatus(identifier)(client), json)
+        break
+    }
+  })

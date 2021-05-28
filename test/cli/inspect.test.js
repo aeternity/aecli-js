@@ -88,10 +88,12 @@ describe('CLI Inspect Module', function () {
     // CLI try to get transaction which doest exist
     descriptor.api_error.should.equal('Transaction not found')
   })
-  it('Inspect Name', async () => {
-    const invalidName = await execute(['inspect', 'asd', '--json'])
-    const validName = JSON.parse(await execute(['inspect', 'nazdou2222222.chain', '--json']))
-    invalidName.indexOf('AENS: Invalid name domain').should.not.equal(-1)
-    validName.status.should.be.equal('AVAILABLE')
-  })
+
+  it('Inspect Invalid Name', () => execute(['inspect', 'asd', '--json'])
+    .should.be.rejected
+    .and.eventually.include('AENS: Invalid name domain'))
+
+  it('Inspect Name', async () => JSON
+    .parse(await execute(['inspect', 'nazdou2222222.chain', '--json']))
+    .status.should.be.equal('AVAILABLE'))
 })
